@@ -4,10 +4,15 @@
  * phía server chỉ phục vụ trang và (tuỳ chọn) lưu file kết quả vào Google Drive.
  */
 function doGet() {
-  return HtmlService.createHtmlOutputFromFile('Index')
+  return HtmlService.createTemplateFromFile('Index').evaluate()
     .setTitle('Tra cứu sản phẩm theo Ship / Code')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/** Chèn file HTML khác (vd. module Converter) vào trang. */
+function include(name) {
+  return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
 
 /** Lưu file Excel (base64) vào thư mục gốc của Google Drive người dùng. */
