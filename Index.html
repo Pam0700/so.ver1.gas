@@ -153,6 +153,13 @@
     <section class="panel" id="p-short">
       <h2>Quy ước rút gọn</h2>
       <p class="sub">Rút gọn tên khách hàng / điểm giao và tên sản phẩm. Sau khi nạp quy ước, bấm Xử lý lại để áp dụng.</p>
+      <div class="card" id="sysRulesCard">
+        <b>Quy ước trên hệ thống</b>
+        <div id="sysRulesMsg" class="muted" style="margin:4px 0 8px">Đang tải...</div>
+        <button id="btnReloadRules" type="button">Tải lại quy ước</button>
+      </div>
+      <details class="card">
+        <summary>Dùng file quy ước riêng (tạm thời, không lưu)</summary>
       <fieldset>
         <legend>Khách hàng &amp; điểm giao</legend>
         <label>File quy ước (4 cột: tên khách gốc, điểm giao gốc, Khách hàng, Điểm giao):
@@ -162,6 +169,7 @@
       </fieldset>
       <!-- Module rút gọn tên sản phẩm (product-short.js) — có thể gỡ bỏ độc lập -->
       <div id="productShortBox"></div>
+      </details>
     </section>
   </main>
 </div>
@@ -352,6 +360,16 @@ function makeRank(orderStr){
 /* ---------- quy ước rút gọn ---------- */
 let shortMap = new Map();   // "khách||điểm" (thường) -> {cus, point}
 const mkKey = (c,p)=>(clean(c)+'||'+clean(p)).toLowerCase();
+// nạp quy ước khách hàng từ hệ thống: rows = [[khách gốc, điểm giao gốc, khách rút gọn, điểm giao rút gọn], ...]
+window.CPSetCusRules = rows=>{
+  shortMap = new Map();
+  (rows||[]).forEach(r=>{
+    const c = clean(r[2]), p = clean(r[3]);
+    if(c || p) shortMap.set(mkKey(r[0],r[1]),{cus:c,point:p});
+  });
+};
+// danh sách [khách, điểm giao] trong dg1 đang tải (cho nút Cập nhật của admin)
+window.CPGetCustomers = ()=>dgRows.map(r=>[r.cus,r.point]);
 
 $('fMap').addEventListener('change', async e=>{
   shortMap = new Map();
@@ -542,24 +560,27 @@ $('btnDl').onclick = async ()=>{
 /* Điều hướng menu trái */
 (function(){
   const $ = id => document.getElementById(id);
-  const links = Array.from(document.querySelectorAll('#nav a'));
   function show(id){
     document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active', p.id===id));
-    links.forEach(a=>a.classList.toggle('active', a.dataset.p===id));
+    document.querySelectorAll('#nav a').forEach(a=>a.classList.toggle('active', a.dataset.p===id));
     $('side').classList.remove('open'); $('overlay').classList.remove('show');
     window.scrollTo(0,0);
   }
   window.CPShowPanel = show;
-  links.forEach(a=>a.addEventListener('click',()=>show(a.dataset.p)));
+  $('nav').addEventListener('click',e=>{ const a = e.target.closest('a[data-p]'); if(a) show(a.dataset.p); });
   document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>show(b.dataset.go)));
   $('menuBtn').addEventListener('click',()=>{ $('side').classList.toggle('open'); $('overlay').classList.toggle('show'); });
   $('overlay').addEventListener('click',()=>{ $('side').classList.remove('open'); $('overlay').classList.remove('show'); });
   $('btnRun').addEventListener('click',()=>show('p-result'));   // xử lý xong -> sang trang Kết quả
-  const mark = (id,done)=>{ const a = links.find(x=>x.dataset.p===id); a.classList.toggle('done',done); a.firstChild.textContent = done ? '\u2713' : a.dataset.n; };
+  const mark = (id,done)=>{ const a = document.querySelector('#nav a[data-p="'+id+'"]'); a.classList.toggle('done',done); a.firstChild.textContent = done ? '\u2713' : a.dataset.n; };
   new MutationObserver(()=>{ const t = $('status').textContent; mark('p-upload', /dg1:/.test(t) && /Sản phẩm:/.test(t)); })
     .observe($('status'),{childList:true,subtree:true,characterData:true});
   new MutationObserver(()=>mark('p-result', !!$('out').querySelector('table'))).observe($('out'),{childList:true});
 })();
 </script>
+<?!= include('Rules'); ?>
+<? if (isAdmin) { ?>
+<?!= include('Admin'); ?>
+<? } ?>
 </body>
 </html>
