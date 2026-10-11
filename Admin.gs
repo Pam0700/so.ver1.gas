@@ -6,8 +6,11 @@
  *   - File form báo cáo .xlsx (chỉ giữ 1 form hiện hành)
  *
  * Cài đặt mật khẩu admin: Cài đặt dự án -> Thuộc tính tập lệnh -> thêm ADMIN_PASSWORD.
+ * Nhớ đăng nhập: sau khi nhập mật khẩu 1 lần, tài khoản Google đang dùng được "tin cậy" 30 ngày
+ * (khoá tạm Session.getTemporaryActiveUserKey, chỉ lưu bản băm) nên tải lại trang không phải nhập lại.
  *
  * Hàm công khai (mọi người dùng): getRules, getForm
+ * Đăng nhập: adminLogin, adminAutoLogin, adminLogout
  * Hàm admin (cần token từ adminLogin): adminCheck, adminGetRules, adminSaveRules,
  *   adminAppendNew, adminFormInfo, adminUploadForm, adminLinks
  */
@@ -16,7 +19,8 @@ var ADM = {
   TAB_KH: 'KhachHang', TAB_SP: 'SanPham',
   HEAD_KH: ['Tên khách hàng (gốc)', 'Điểm giao (gốc)', 'Khách hàng', 'Điểm giao'],
   HEAD_SP: ['Sản phẩm (gốc)', 'Sản phẩm rút gọn'],
-  XLSX: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  XLSX: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  TRUST_DAYS: 30
 };
 
 /* ---------- tiện ích ---------- */
@@ -101,6 +105,29 @@ function formInfo_(withData) {
 function getForm() { return formInfo_(true); }
 
 /* ---------- xác thực admin (mật khẩu) ---------- */
+// Định danh tin cậy theo tài khoản Google đang dùng (chỉ lưu bản băm của khoá tạm)
+function trustId_() {
+  try {
+    const k = Session.getTemporaryActiveUserKey();
+    if (!k || String(k).length < 8) return '';
+    const h = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(k));
+    return 'TRUST_' + Utilities.base64EncodeWebSafe(h).slice(0, 24);
+  } catch (e) { return ''; }
+}
+function newToken_() {
+  const token = Utilities.getUuid();
+  CacheService.getScriptCache().put('adm_' + token, '1', 21600);   // phiên admin 6 giờ
+  return token;
+}
+function trustRemember_() {
+  const id = trustId_(); if (!id) return false;
+  const p = props_(), now = Date.now();
+  p.setProperty(id, String(now + ADM.TRUST_DAYS * 86400000));
+  p.getKeys().forEach(function (k) {   // dọn các mục đã hết hạn
+    if (k.indexOf('TRUST_') === 0 && Number(p.getProperty(k) || 0) < now) p.deleteProperty(k);
+  });
+  return true;
+}
 function adminLogin(pw) {
   const real = props_().getProperty(ADM.PW);
   if (!real) throw new Error('Chưa đặt mật khẩu admin. Vào Cài đặt dự án > Thuộc tính tập lệnh, thêm ADMIN_PASSWORD.');
@@ -109,9 +136,20 @@ function adminLogin(pw) {
   if (fails >= 8) throw new Error('Nhập sai quá nhiều lần. Thử lại sau 10 phút.');
   if (String(pw) !== real) { cache.put('adm_fail', String(fails + 1), 600); throw new Error('Sai mật khẩu.'); }
   cache.remove('adm_fail');
-  const token = Utilities.getUuid();
-  cache.put('adm_' + token, '1', 21600);   // phiên admin 6 giờ
-  return token;
+  return { token: newToken_(), remembered: trustRemember_() };
+}
+// Tải lại trang: nếu tài khoản này đã đăng nhập trong 30 ngày gần đây thì cấp phiên mới (không hỏi mật khẩu)
+function adminAutoLogin() {
+  const id = trustId_(); if (!id) return null;
+  const p = props_();
+  if (Number(p.getProperty(id) || 0) <= Date.now()) return null;
+  p.setProperty(id, String(Date.now() + ADM.TRUST_DAYS * 86400000));   // gia hạn mỗi lần dùng
+  return newToken_();
+}
+function adminLogout(token) {
+  if (token) CacheService.getScriptCache().remove('adm_' + token);
+  const id = trustId_(); if (id) props_().deleteProperty(id);
+  return true;
 }
 function requireAdmin_(token) {
   if (!token || CacheService.getScriptCache().get('adm_' + token) !== '1') {

@@ -36,19 +36,29 @@
           xl: ['Sản phẩm (gốc)', 'Sản phẩm rút gọn'], file: 'quy_uoc_san_pham.xlsx' }
   };
 
+  // nhớ phiên ở nhiều nơi (localStorage, sessionStorage); ngoài ra server nhớ theo tài khoản Google (adminAutoLogin)
+  const KEY = 'cp_adm_token', storages = [];
+  try { storages.push(window.localStorage); } catch (e) { /* bị chặn */ }
+  try { storages.push(window.sessionStorage); } catch (e) { /* bị chặn */ }
   let token = null;
-  try { token = localStorage.getItem('cp_adm_token'); } catch (e) { /* trình duyệt chặn lưu */ }
+  storages.forEach(function (s) { try { token = token || s.getItem(KEY); } catch (e) { /* bỏ qua */ } });
   const store = function (t) {
     token = t;
-    try { t ? localStorage.setItem('cp_adm_token', t) : localStorage.removeItem('cp_adm_token'); } catch (e) { /* bỏ qua */ }
+    storages.forEach(function (s) { try { t ? s.setItem(KEY, t) : s.removeItem(KEY); } catch (e) { /* bỏ qua */ } });
   };
-  const st = { cur: 'kh', data: { kh: [], sp: [] }, ver: { kh: 0, sp: 0 }, dirty: { kh: false, sp: false }, page: 0, authed: false, links: null };
+  const persisted = function () { return storages.some(function (s) { try { return s.getItem(KEY) === token; } catch (e) { return false; } }); };
+  const st = { cur: 'kh', data: { kh: [], sp: [] }, ver: { kh: 0, sp: 0 }, dirty: { kh: false, sp: false }, page: 0, authed: false, links: null, remembered: false };
 
-  // gọi hàm admin kèm token; hết phiên thì quay lại màn đăng nhập
+  // gọi hàm admin kèm token; hết phiên thì thử đăng nhập lại ngầm (nhớ theo tài khoản), không được mới hỏi mật khẩu
   async function adm(name) {
-    const args = [name, token].concat(Array.prototype.slice.call(arguments, 1));
-    try { return await gs.apply(null, args); }
-    catch (e) { if (/hết hạn/.test(e.message)) { store(null); setAuthed(false); } throw e; }
+    const rest = Array.prototype.slice.call(arguments, 1);
+    const call = function () { return gs.apply(null, [name, token].concat(rest)); };
+    try { return await call(); }
+    catch (e) {
+      if (!/hết hạn/.test(e.message)) throw e;
+      try { const t = await gs('adminAutoLogin'); if (t) { store(t); return await call(); } } catch (e2) { /* hỏi lại mật khẩu */ }
+      store(null); setAuthed(false); throw e;
+    }
   }
 
   /* ---------- 1. dựng giao diện ---------- */
@@ -62,7 +72,7 @@
   document.querySelector('main').insertAdjacentHTML('beforeend',
     '<section class="panel" id="p-adm-rules"><h2>Quản lý quy ước rút gọn</h2>' +
     '<p class="sub">Sửa tên rút gọn khách hàng / điểm giao và sản phẩm. Dữ liệu lưu trong Google Sheet, mọi người dùng tự nhận.</p>' + gate +
-    '<div class="admBody" style="display:none"><div class="card">' +
+    '<div class="admBody" style="display:none"><div class="admBar" style="margin-bottom:8px"><span class="admSessTxt muted"></span> <button type="button" class="admLogout">Đăng xuất</button></div><div class="card">' +
       '<div class="tabs"><button type="button" class="tab active" data-k="kh">Khách hàng &amp; điểm giao</button>' +
       '<button type="button" class="tab" data-k="sp">Sản phẩm</button></div>' +
       '<input type="text" id="admSearch" placeholder="Tìm trong bảng...">' +
@@ -84,7 +94,7 @@
 
     '<section class="panel" id="p-adm-form"><h2>Form báo cáo (Drive)</h2>' +
     '<p class="sub">Form lưu trong Google Drive, trang tự dùng khi điền form báo cáo. Chỉ giữ 1 form hiện hành; tải form mới sẽ thay thế form cũ.</p>' + gate +
-    '<div class="admBody" style="display:none"><div class="card">' +
+    '<div class="admBody" style="display:none"><div class="admBar" style="margin-bottom:8px"><span class="admSessTxt muted"></span> <button type="button" class="admLogout">Đăng xuất</button></div><div class="card">' +
       '<div id="admFormInfo" class="muted"></div>' +
       '<label>Tải form mới (.xlsx): <input type="file" id="admFormFile" accept=".xlsx"></label>' +
       '<button type="button" class="primary" id="admFormUp">Lưu vào Drive</button>' +
@@ -110,22 +120,29 @@
     st.authed = ok;
     document.querySelectorAll('.admGate').forEach(function (g) {
       g.style.display = ok ? 'none' : '';
-      if (!ok) g.innerHTML = '<b>Đăng nhập admin</b><p class="muted">Nhập mật khẩu admin (đặt trong Cài đặt dự án &rarr; Thuộc tính tập lệnh: <code>ADMIN_PASSWORD</code>).</p>' +
+      if (!ok) g.innerHTML = '<b>Đăng nhập admin</b><p class="muted">Nhập mật khẩu admin (' + (window.CP_PW_HINT || 'đặt trong Cài đặt dự án &rarr; Thuộc tính tập lệnh: <code>ADMIN_PASSWORD</code>') + ').</p>' +
         '<input type="password" class="admPw" placeholder="Mật khẩu"> <button type="button" class="primary admLogin">Đăng nhập</button>' +
         '<div class="admLoginMsg err" style="margin-top:6px"></div>';
     });
     document.querySelectorAll('.admBody').forEach(function (b) { b.style.display = ok ? '' : 'none'; });
+    const txt = st.remembered ? 'Đã đăng nhập. Hệ thống nhớ đăng nhập, tải lại trang không phải nhập lại.'
+      : 'Đã đăng nhập (phiên 6 giờ). ' + (persisted() ? 'Phiên được nhớ trên trình duyệt này.'
+        : 'Không nhớ được đăng nhập (trình duyệt chặn lưu), tải lại trang sẽ phải nhập lại mật khẩu.');
+    document.querySelectorAll('.admSessTxt').forEach(function (e) { e.textContent = txt; });
   }
   async function login(g) {
     const pw = g.querySelector('.admPw').value, m = g.querySelector('.admLoginMsg');
     m.textContent = 'Đang kiểm tra...';
     try {
-      store(await gs('adminLogin', pw));
+      const r = await gs('adminLogin', pw);
+      store(r.token); st.remembered = !!r.remembered;
       setAuthed(true);
       await loadAll();
     } catch (e) { m.textContent = e.message; }
   }
   document.querySelector('main').addEventListener('click', function (e) {
+    const o = e.target.closest('.admLogout');
+    if (o) { gs('adminLogout', token).catch(function () {}); store(null); st.remembered = false; setAuthed(false); return; }
     const b = e.target.closest('.admLogin'); if (b) login(b.closest('.admGate'));
   });
   document.querySelector('main').addEventListener('keydown', function (e) {
@@ -319,15 +336,22 @@
   async function loadAll() {
     await loadRulesData();
     try { showFormInfo(await adm('adminFormInfo')); } catch (e) { /* hiển thị sau */ }
-    try { st.links = await adm('adminLinks'); $('admSheetLink').href = st.links.sheet; $('admFolderLink').href = st.links.folder; } catch (e) { /* bỏ qua */ }
+    try {
+      st.links = await adm('adminLinks');
+      [['admSheetLink', st.links.sheet], ['admFolderLink', st.links.folder]].forEach(function (x) {
+        const a = $(x[0]); if (x[1]) { a.href = x[1]; a.style.display = ''; } else a.style.display = 'none';
+      });
+    } catch (e) { /* bỏ qua */ }
   }
   setAuthed(false);
   (async function () {
-    if (token) {
-      let ok = false; try { ok = await gs('adminCheck', token); } catch (e) { /* bỏ qua */ }
-      if (ok) { setAuthed(true); try { await loadAll(); } catch (e) { say('admMsg', e.message, 'err'); } return; }
-      store(null);
+    let ok = false;
+    if (token) { try { ok = await gs('adminCheck', token); } catch (e) { /* thử cách khác */ } }
+    if (!ok) {   // phiên cũ hết/không có: nhờ server nhận ra tài khoản đã đăng nhập trước đó
+      try { const t = await gs('adminAutoLogin'); if (t) { store(t); st.remembered = true; ok = true; } } catch (e) { /* bỏ qua */ }
     }
+    if (ok) { setAuthed(true); try { await loadAll(); } catch (e) { say('admMsg', e.message, 'err'); } return; }
+    store(null);
     window.CPShowPanel('p-adm-rules');   // chưa đăng nhập: mở màn đăng nhập
   })();
 })();
