@@ -3,9 +3,11 @@
  * Toàn bộ xử lý Excel chạy ở trình duyệt (trong Index.html);
  * phía server chỉ phục vụ trang và (tuỳ chọn) lưu file kết quả vào Google Drive.
  */
-function doGet() {
-  return HtmlService.createTemplateFromFile('Index').evaluate()
-    .setTitle('Tra cứu sản phẩm theo Ship / Code')
+function doGet(e) {
+  const t = HtmlService.createTemplateFromFile('Index');
+  t.isAdmin = !!(e && e.parameter && e.parameter.page === 'admin');   // link admin: ...?page=admin
+  return t.evaluate()
+    .setTitle(t.isAdmin ? 'Tra cứu Ship / Code (Admin)' : 'Tra cứu sản phẩm theo Ship / Code')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
