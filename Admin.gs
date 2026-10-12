@@ -2,7 +2,7 @@
  * Admin.gs — Module quản trị cho bản Google Apps Script. Có thể thêm/gỡ độc lập.
  *
  * Lưu trữ (tự tạo ở lần dùng đầu tiên, trong 1 thư mục Drive):
- *   - Google Sheet "Quy ước rút gọn": tab KhachHang (4 cột), tab SanPham (2 cột)
+ *   - Google Sheet "Quy ước rút gọn": tab KhachHang (3 cột: khách gốc, điểm giao gốc, khách rút gọn), tab SanPham (2 cột)
  *   - File form báo cáo .xlsx (chỉ giữ 1 form hiện hành)
  *
  * Cài đặt mật khẩu admin: Cài đặt dự án -> Thuộc tính tập lệnh -> thêm ADMIN_PASSWORD.
@@ -17,7 +17,7 @@
 var ADM = {
   PW: 'ADMIN_PASSWORD', FOLDER: 'FOLDER_ID', SHEET: 'RULES_SHEET_ID', FORM: 'FORM_FILE_ID',
   TAB_KH: 'KhachHang', TAB_SP: 'SanPham',
-  HEAD_KH: ['Tên khách hàng (gốc)', 'Điểm giao (gốc)', 'Khách hàng', 'Điểm giao'],
+  HEAD_KH: ['Tên khách hàng (gốc)', 'Điểm giao (gốc)', 'Khách hàng'],
   HEAD_SP: ['Sản phẩm (gốc)', 'Sản phẩm rút gọn'],
   XLSX: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   TRUST_DAYS: 30
@@ -30,7 +30,7 @@ function key_(s) { return norm_(s).toLowerCase(); }
 function kind_(k) {
   if (k !== 'kh' && k !== 'sp') throw new Error('Loại quy ước không hợp lệ.');
   return k === 'kh'
-    ? { tab: ADM.TAB_KH, n: 4, head: ADM.HEAD_KH, keyCols: [0, 1] }
+    ? { tab: ADM.TAB_KH, n: 3, head: ADM.HEAD_KH, keyCols: [0, 1] }
     : { tab: ADM.TAB_SP, n: 2, head: ADM.HEAD_SP, keyCols: [0] };
 }
 function rowKey_(k, row) { return k === 'kh' ? key_(row[0]) + '||' + key_(row[1]) : key_(row[0]); }
@@ -59,6 +59,11 @@ function tab_(ss, k) {
     sh.setFrozenRows(1);
     sh.getRange(1, 1, sh.getMaxRows(), c.n).setNumberFormat('@');   // giữ nguyên dạng chữ (vd. "1:" không bị đổi thành giờ)
   }
+  if (k === 'kh' && sh.getMaxColumns() >= 4 && norm_(sh.getRange(1, 4).getValue()) !== '') {
+    // chuyển từ cấu trúc cũ (4 cột, có "Điểm giao" rút gọn) sang 3 cột: bỏ cột D cũ
+    sh.deleteColumn(4);
+    sh.getRange(1, 1, 1, 3).setValues([c.head]).setFontWeight('bold');
+  }
   return sh;
 }
 function getSS_() {
@@ -86,7 +91,7 @@ function writeAll_(k, rows) {
 /* ---------- công khai ---------- */
 function getRules() {
   return {
-    kh: readRows_('kh').filter(function (r) { return r[2] || r[3]; }),
+    kh: readRows_('kh').filter(function (r) { return r[2]; }),
     sp: readRows_('sp').filter(function (r) { return r[1]; })
   };
 }
@@ -192,7 +197,7 @@ function adminAppendNew(token, k, items) {
     readRows_(k).forEach(function (r) { have[rowKey_(k, r)] = true; });
     const add = [];
     (items || []).forEach(function (it) {
-      const row = k === 'kh' ? [norm_(it && it[0]), norm_(it && it[1]), '', ''] : [norm_(Array.isArray(it) ? it[0] : it), ''];
+      const row = k === 'kh' ? [norm_(it && it[0]), norm_(it && it[1]), ''] : [norm_(Array.isArray(it) ? it[0] : it), ''];
       if (!c.keyCols.some(function (i) { return row[i]; })) return;
       const kk = rowKey_(k, row);
       if (have[kk]) return;
